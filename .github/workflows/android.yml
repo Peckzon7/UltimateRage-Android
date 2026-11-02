@@ -13,8 +13,14 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Initialize submodules
+        run: git submodule update --init --recursive
 
       - name: Configure Java
         uses: actions/setup-java@v4
@@ -35,6 +41,12 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;29.0.14206865" \
             "cmake;3.31.6"
+
+      - name: Verify dependencies
+        run: |
+          test -f platforms/android/app/src/main/cpp/3rdparty/zstd/build/cmake/CMakeLists.txt
+          test -f platforms/android/app/src/main/cpp/3rdparty/lz4/build/cmake/CMakeLists.txt
+          git submodule status --recursive
 
       - name: Prepare Gradle
         working-directory: platforms/android
