@@ -9,14 +9,14 @@ permissions:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build Ultimate Rage
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Java 21
+      - name: Configure Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -27,12 +27,12 @@ jobs:
         with:
           accept-android-sdk-licenses: 'true'
           log-accepted-android-sdk-licenses: 'false'
-          packages: ''
 
       - name: Install Android dependencies
         run: |
           sdkmanager --install \
-            "platforms;android-37" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
             "ndk;29.0.14206865" \
             "cmake;3.31.6"
 
@@ -40,10 +40,9 @@ jobs:
         working-directory: platforms/android
         run: chmod +x gradlew
 
-      - name: Build Ultimate Rage Release
+      - name: Build APK
         working-directory: platforms/android
-        run: |
-          ./gradlew --no-daemon assembleGithubRelease
+        run: ./gradlew --no-daemon assembleGithubRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
