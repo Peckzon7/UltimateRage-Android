@@ -1,0 +1,44 @@
+
+name: Ultimate Rage APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar ferramentas
+        run: |
+          sdkmanager "platforms;android-37"
+          sdkmanager "build-tools;37.0.0"
+          sdkmanager "ndk;29.0.14206865"
+          sdkmanager "cmake;3.31.6"
+
+      - name: Dar permissão ao Gradle
+        working-directory: platforms/android
+        run: chmod +x gradlew
+
+      - name: Compilar APK
+        working-directory: platforms/android
+        run: ./gradlew assembleGithubRelease
+
+      - name: Enviar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ultimate-Rage-APK
+          path: platforms/android/app/build/outputs/apk/**/*.apk
+          
