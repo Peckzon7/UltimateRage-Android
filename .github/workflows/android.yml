@@ -42,6 +42,19 @@ jobs:
             "ndk;29.0.14206865" \
             "cmake;3.31.6"
 
+      - name: Fetch Shaderc dependencies
+        run: |
+          THIRD_PARTY="platforms/android/app/src/main/cpp/3rdparty/shaderc/third_party"
+
+          git clone https://github.com/KhronosGroup/SPIRV-Tools.git "$THIRD_PARTY/spirv-tools"
+          git -C "$THIRD_PARTY/spirv-tools" checkout --detach e4bceacf59fdfe742047e94e41ef65a48999a0dd
+
+          git clone https://github.com/KhronosGroup/SPIRV-Headers.git "$THIRD_PARTY/spirv-headers"
+          git -C "$THIRD_PARTY/spirv-headers" checkout --detach 465055f6c9128772e20082e893d974146acf7a02
+
+          git clone https://github.com/KhronosGroup/glslang.git "$THIRD_PARTY/glslang"
+          git -C "$THIRD_PARTY/glslang" checkout --detach 09c541ee5b22bbac307987b50d86ec2b4f683d75
+
       - name: Verify dependencies
         run: |
           test -f platforms/android/app/src/main/cpp/3rdparty/zstd/build/cmake/CMakeLists.txt
