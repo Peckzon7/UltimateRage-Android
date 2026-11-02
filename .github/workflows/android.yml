@@ -28,7 +28,12 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Configure Android SDK
+      - name: Configure Rust for Android
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-linux-android
+
+    - name: Configure Android SDK
         uses: android-actions/setup-android@v4
         with:
           accept-android-sdk-licenses: 'true'
