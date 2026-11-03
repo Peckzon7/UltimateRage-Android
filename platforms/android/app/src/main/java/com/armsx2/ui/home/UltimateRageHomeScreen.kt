@@ -12,6 +12,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.armsx2.runtime.MainActivityRuntime
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -26,22 +29,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val RageBackground = Color(0xFF171A2C)
-private val RageCard = Color(0xFF191D34)
-private val RageMuted = Color(0xFFB9B9CC)
-private val RageOrange = Color(0xFFFF922E)
-private val RageYellow = Color(0xFFFFB52E)
-private val RageOutline = Color(0xFF77758C)
+private val RageBackground = Color(0xFF202020)
+private val RageCard = Color(0xFF2B2B2B)
+private val RageMuted = Color(0xFFBDBDBD)
+private val RageOrange = Color(0xFFE53935)
+private val RageYellow = Color(0xFFFF5252)
+private val RageOutline = Color(0xFF555555)
 
 enum class UltimateRageTab(val label: String, val symbol: String) {
     HOME("Início", "⌂"),
-    TEXTURES("Texturas", "▧"),
-    MODS("Mods", "✣"),
-    CONTROLS("Controles", "⌘"),
+    SETTINGS("Config", "⚙"),
     CHEATS("Cheats", "▣"),
     DRIVERS("Drivers", "▦"),
-    DEBUG("Depuração", "⚙"),
-    SETTINGS("Ajustes", "☷")
+    TEXTURES("Textures", "▧"),
+    CONTROLS("Controles", "⌘")
 }
 
 /**
@@ -96,7 +97,7 @@ fun UltimateRageHomeScreen(
                     )
 
                     Spacer(Modifier.height(20.dp))
-                    PlayButton(onClick = onPlay)
+                    PlayButton(onClick = onPlay, enabled = gameDetected)
                     Spacer(Modifier.height(18.dp))
 
                     ShortcutButton(
@@ -254,17 +255,17 @@ private fun OnlineStyleStatusCard(title: String, message: String, detail: String
 }
 
 @Composable
-private fun PlayButton(onClick: () -> Unit) {
+private fun PlayButton(onClick: () -> Unit, enabled: Boolean) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(112.dp)
             .clip(RoundedCornerShape(30.dp))
             .background(
-                Brush.horizontalGradient(listOf(Color(0xFFEF6A0A), Color(0xFFFFA52C)))
+                Brush.horizontalGradient(if (enabled) listOf(Color(0xFFD50000), Color(0xFFFF3333)) else listOf(Color(0xFF555555), Color(0xFF777777)))
             )
-            .border(3.dp, Color(0xFFFFC06B), RoundedCornerShape(30.dp))
-            .clickable(onClick = onClick)
+            .border(3.dp, if (enabled) Color(0xFFFF8A80) else Color(0xFF888888), RoundedCornerShape(30.dp))
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 24.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -277,7 +278,7 @@ private fun PlayButton(onClick: () -> Unit) {
                 Text("▶", color = Color.White, fontSize = 25.sp)
             }
             Spacer(Modifier.width(20.dp))
-            Text("JOGAR", color = Color(0xFF261406), fontSize = 32.sp, fontWeight = FontWeight.Black)
+            Text("JOGAR", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -390,4 +391,39 @@ private fun BottomNavigation(selectedIndex: Int, onSelect: (Int) -> Unit) {
             }
         }
     }
+}
+
+
+@Composable
+fun UltimateRageHomeRoute() {
+    val viewModel: HomeViewModel = viewModel()
+    val directories = MainActivityRuntime.romsDirs.value
+    val nativeReady = MainActivityRuntime.nativeReady.value
+    val state = viewModel.state.value
+
+    LaunchedEffect(directories, nativeReady) {
+        viewModel.load(directories, nativeReady)
+    }
+
+    val refreshRequest =
+        com.armsx2.data.library.LibraryRefresh.requests.intValue
+
+    LaunchedEffect(refreshRequest, nativeReady, directories) {
+        if (nativeReady) {
+            viewModel.onRefreshRequested(refreshRequest, directories)
+        }
+    }
+
+    val selectedGame = viewModel.selectedGame()
+
+    UltimateRageHomeScreen(
+        gameDetected = selectedGame != null,
+        gameFileSummary = selectedGame?.title
+            ?: state.error
+            ?: if (state.scanning) "Verificando arquivos..."
+            else "Aguardando verificação dos arquivos",
+        onPlay = {
+            selectedGame?.let(viewModel::launch)
+        }
+    )
 }

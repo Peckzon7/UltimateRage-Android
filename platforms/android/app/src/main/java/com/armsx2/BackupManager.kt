@@ -144,6 +144,31 @@ object BackupManager {
         }.getOrElse { BackupResult(false, it.message ?: "restore failed") }
     }
 
+    /** Exports only LLVM PGO raw profiles. Blocking; call from Dispatchers.IO. */
+    fun exportPgoProfiles(context: Context, out: OutputStream): BackupResult {
+        val dir = File(MainActivityRuntime.assetCopyRoot(context), "pgo")
+        val profiles = dir.takeIf { it.isDirectory }
+            ?.walkTopDown()
+            ?.filter { it.isFile && it.extension == "profraw" }
+            ?.toList()
+            .orEmpty()
+
+        if (profiles.isEmpty()) return BackupResult(false, "no .profraw profiles found")
+
+        var bytes = 0L
+        return runCatching {
+            ZipOutputStream(out.buffered()).use { zip ->
+                profiles.forEach { file ->
+                    val relative = file.relativeTo(dir).invariantSeparatorsPath
+                    zip.putNextEntry(ZipEntry(relative))
+                    bytes += file.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+            BackupResult(true, "${profiles.size} profiles, ${bytes / 1024} KB")
+        }.getOrElse { BackupResult(false, it.message ?: "PGO export failed") }
+    }
+
     fun suggestedName(context: Context): String =
         "ARMSX2-backup-${appVersion(context)}.zip"
 

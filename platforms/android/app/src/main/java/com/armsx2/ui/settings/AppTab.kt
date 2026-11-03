@@ -1098,6 +1098,7 @@ private fun BackupRestoreRows() {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
+    var pgoStatus by remember { mutableStateOf("") }
 
     // Both directions run on IO: a full data root is tens to hundreds of MB and would jank (or ANR)
     // on the main thread. `busy` blocks a second tap while one is in flight.
@@ -1121,6 +1122,28 @@ private fun BackupRestoreRows() {
             }
         }
     }
+    val pgoExporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        busy = true
+        pgoStatus = "Exportando perfis PGO..."
+        scope.launch(Dispatchers.IO) {
+            val r = runCatching {
+                context.contentResolver.openOutputStream(uri)?.use {
+                    com.armsx2.BackupManager.exportPgoProfiles(context, it)
+                } ?: com.armsx2.BackupManager.BackupResult(false, "could not open destination")
+            }.getOrElse {
+                com.armsx2.BackupManager.BackupResult(false, it.message ?: "PGO export failed")
+            }
+            withContext(Dispatchers.Main) {
+                busy = false
+                pgoStatus = if (r.ok) "PGO: ${r.detail}" else "PGO: ${r.detail}"
+                Toast.makeText(context, pgoStatus, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     val importer = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -1146,11 +1169,15 @@ private fun BackupRestoreRows() {
     }
 
     val doExport = { if (!busy) exporter.launch(com.armsx2.BackupManager.suggestedName(context)) }
+    val doPgoExport = { if (!busy) pgoExporter.launch("UltimateRage-PGO-profiles.zip") }
     val doImport = {
         if (!busy) importer.launch(arrayOf("application/zip", "application/octet-stream"))
     }
 
     BackupActionRow("💾", "app.backup.export", "app.backup.export.desc", status, busy, doExport)
+    BackupActionRow("📊", "app.pgo.export", "app.pgo.export.desc", pgoStatus, busy, doPgoExport,
+        labelOverride = "Exportar perfis PGO",
+        descOverride = "Exporta arquivos .profraw para treinamento PGO")
     BackupActionRow("📥", "app.backup.import", "app.backup.import.desc", "", busy, doImport)
 
     // Factory reset. Sits with Backup/Restore because Export is the thing to do first — the
@@ -1177,6 +1204,8 @@ private fun BackupActionRow(
     status: String,
     busy: Boolean,
     onClick: () -> Unit,
+    labelOverride: String? = null,
+    descOverride: String? = null,
 ) {
     Surface(
         onClick = onClick,
@@ -1202,9 +1231,9 @@ private fun BackupActionRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(str(labelKey), style = MaterialTheme.typography.titleMedium)
+                Text(labelOverride ?: str(labelKey), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    status.ifEmpty { str(descKey) },
+                    status.ifEmpty { descOverride ?: str(descKey) },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

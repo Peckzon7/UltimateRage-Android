@@ -209,17 +209,27 @@ std::string GetJavaString(JNIEnv *env, jstring jstr) {
 // compiler-rt profile runtime — present only in the -fprofile-generate build.
 extern "C" void __llvm_profile_set_filename(const char*);
 extern "C" int __llvm_profile_write_file(void);
+
+// Centralized PGO flush. A non-zero compiler-rt result indicates failure.
+static void WritePgoProfile()
+{
+    static std::mutex pgo_write_mutex;
+    const std::lock_guard<std::mutex> lock(pgo_write_mutex);
+    const int result = __llvm_profile_write_file();
+    if (result == 0)
+        Console.WriteLn("@@ANDROID_PGO@@ profile_write=success");
+    else
+        Console.Error("@@ANDROID_PGO@@ profile_write=failed result=%d", result);
+}
 #endif
 
-// PGO instrument build: flush collected profile counters to the .profraw file
-// (path set via __llvm_profile_set_filename in initialize()). Called from Kotlin
-// onPause so a profiling run survives an Android process kill. No-op in normal
-// builds (the profile runtime isn't linked).
+// Flush collected profile counters to the .profraw file.
+// No-op in normal builds (the profile runtime isn't linked).
 extern "C"
 JNIEXPORT void JNICALL
 Java_kr_co_iefriends_pcsx2_NativeApp_dumpPgoProfile(JNIEnv*, jclass) {
 #ifdef ARMSX2_PGO_GENERATE
-    __llvm_profile_write_file();
+    WritePgoProfile();
 #endif
 }
 
@@ -3937,6 +3947,10 @@ Java_kr_co_iefriends_pcsx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
         s_last_boot_error = boot_error.GetDescription();
     }
     ////
+#ifdef ARMSX2_PGO_GENERATE
+    // Final flush after VM shutdown, before the CPU thread is torn down.
+    WritePgoProfile();
+#endif
     Host::PumpMessagesOnCPUThread();
     VMManager::Internal::CPUThreadShutdown();
     CloseCPUThreadQueue();
