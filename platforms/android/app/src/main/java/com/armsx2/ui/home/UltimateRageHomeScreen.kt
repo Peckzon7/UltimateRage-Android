@@ -15,6 +15,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.armsx2.runtime.MainActivityRuntime
+import com.armsx2.navigation.AppRoute
+import com.armsx2.navigation.SettingsCategory
+import com.armsx2.navigation.UiNavigator
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -424,6 +427,21 @@ fun UltimateRageHomeRoute() {
             else "Aguardando verificação dos arquivos",
         onPlay = {
             selectedGame?.let(viewModel::launch)
+        },
+        onTabSelected = { tab ->
+            when (tab) {
+                UltimateRageTab.HOME -> UiNavigator.home()
+                UltimateRageTab.SETTINGS ->
+                    UiNavigator.navigate(AppRoute.Settings(SettingsCategory.General))
+                UltimateRageTab.CHEATS ->
+                    UiNavigator.navigate(AppRoute.PatchManager)
+                UltimateRageTab.DRIVERS ->
+                    UiNavigator.navigate(AppRoute.Settings(SettingsCategory.Graphics))
+                UltimateRageTab.TEXTURES ->
+                    UiNavigator.navigate(AppRoute.TextureManager)
+                UltimateRageTab.CONTROLS ->
+                    UiNavigator.navigate(AppRoute.ControllerManager)
+            }
         }
     )
 }
