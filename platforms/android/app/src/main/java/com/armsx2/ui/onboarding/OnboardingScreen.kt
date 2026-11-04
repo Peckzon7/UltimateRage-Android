@@ -67,12 +67,9 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
     val state = viewModel.state.value
     val canContinue = viewModel.canContinue()
     var swipeDistance by remember { mutableFloatStateOf(0f) }
-    // Item 7: BIOS onboarding is folder-based (refresh parity) — pick a folder and
-    // every valid BIOS inside is imported and made available here and in the BIOS
-    // settings tab. The button already reads "Pick a different folder"; this makes
-    // the action match. Single-file import still lives in the BIOS settings tab.
-    val biosPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let(viewModel::importBiosFolder)
+    // Import one BIOS file during first-time setup.
+    val biosPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importBios)
     }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(viewModel::addGameFolder)
@@ -175,7 +172,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                         ) { page ->
                             PageViewport(compact = false) {
                                 WizardPage(page, state, viewModel, biosPicker = {
-                                    biosPicker.launch(null)
+                                    biosPicker.launch(arrayOf("*/*"))
                                 }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
                             }
                         }
@@ -216,7 +213,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                     ) { page ->
                         PageViewport(compact = true) {
                             WizardPage(page, state, viewModel, biosPicker = {
-                                biosPicker.launch(null)
+                                biosPicker.launch(arrayOf("*/*"))
                             }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
                         }
                     }
