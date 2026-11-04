@@ -3,6 +3,7 @@
 
 #include "CDVD/CDVDcommon.h"
 #include "CDVD/IsoReader.h"
+#include "CDVD/IsoFileFormats.h"
 
 #include "common/Assertions.h"
 #include "common/Console.h"
@@ -25,21 +26,62 @@ std::string_view IsoReader::RemoveVersionIdentifierFromPath(const std::string_vi
 
 bool IsoReader::Open(Error* error)
 {
-	if (!ReadPVD(error))
-		return false;
+    m_iso = nullptr;
 
-	return true;
+    if (!ReadPVD(error))
+        return false;
+
+    return true;
+}
+
+bool IsoReader::Open(InputIsoFile& iso, Error* error)
+{
+    m_iso = nullptr;
+
+    if (!iso.IsOpened() ||
+        (iso.GetType() != ISOTYPE_CD &&
+         iso.GetType() != ISOTYPE_DVD &&
+         iso.GetType() != ISOTYPE_DVDDL))
+    {
+        Error::SetString(error, "Invalid or unsupported ISO image.");
+        return false;
+    }
+
+    m_iso = &iso;
+    m_pvd = {};
+
+    if (!ReadPVD(error))
+    {
+        m_iso = nullptr;
+        return false;
+    }
+
+    return true;
 }
 
 bool IsoReader::ReadSector(u8* buf, u32 lsn, Error* error)
 {
-	if (DoCDVDreadSector(buf, lsn, CDVD_MODE_2048) != 0)
-	{
-		Error::SetString(error, fmt::format("Failed to read sector LSN #{}", lsn));
-		return false;
-	}
+    if (m_iso)
+    {
+        u8 raw[CD_FRAMESIZE_RAW] = {};
+        const int bytes_read = m_iso->ReadSync(raw, lsn);
+        if (bytes_read != static_cast<int>(m_iso->GetBlockSize()))
+        {
+            Error::SetString(error, fmt::format("Failed to read sector LSN #{}", lsn));
+            return false;
+        }
 
-	return true;
+        std::memcpy(buf, raw + 24, SECTOR_SIZE);
+        return true;
+    }
+
+    if (DoCDVDreadSector(buf, lsn, CDVD_MODE_2048) != 0)
+    {
+        Error::SetString(error, fmt::format("Failed to read sector LSN #{}", lsn));
+        return false;
+    }
+
+    return true;
 }
 
 bool IsoReader::ReadPVD(Error* error)

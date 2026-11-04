@@ -59,6 +59,7 @@ public:
 	isoType GetType() const noexcept { return m_type; }
 	uint GetBlockCount() const noexcept { return m_blocks; }
 	int GetBlockOffset() const  noexcept { return m_blockofs; }
+	u32 GetBlockSize() const noexcept { return m_blocksize; }
 
 	const std::string& GetFilename() const
 	{

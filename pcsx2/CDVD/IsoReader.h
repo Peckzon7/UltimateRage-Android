@@ -11,6 +11,7 @@
 #include <vector>
 
 class Error;
+class InputIsoFile;
 
 class IsoReader
 {
@@ -143,6 +144,7 @@ public:
 	// TODO: Eventually we'll want to pass a handle to the currently-open file here.
 	// ... once I have the energy to make CDVD not depend on a global object.
 	bool Open(Error* error = nullptr);
+    bool Open(InputIsoFile& iso, Error* error = nullptr);
 
 	std::vector<std::string> GetFilesInDirectory(const std::string_view path, Error* error = nullptr);
 
@@ -162,5 +164,6 @@ private:
 	std::optional<ISODirectoryEntry> LocateFile(const std::string_view path, u8* sector_buffer,
 		u32 directory_record_lba, u32 directory_record_size, Error* error);
 
-	ISOPrimaryVolumeDescriptor m_pvd = {};
+	InputIsoFile* m_iso = nullptr;
+    ISOPrimaryVolumeDescriptor m_pvd = {};
 };

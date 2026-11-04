@@ -4,6 +4,7 @@
 #include "Arcade/AcGameFile.h"
 #include "Arcade/ArcadeFiles.h"
 #include "CDVD/CDVD.h"
+#include "CDVD/IsoFileFormats.h"
 #include "Elfheader.h"
 #include "GameList.h"
 #include "Host.h"
@@ -267,22 +268,47 @@ void GameList::FillBootParametersForEntry(VMBootParameters* params, const Entry*
 
 bool GameList::GetIsoSerialAndCRC(const std::string& path, s32* disc_type, std::string* serial, u32* crc)
 {
-	Error error;
+    Error error;
+    InputIsoFile iso;
+    if (!iso.Open(path, &error))
+    {
+        Console.Error(fmt::format("(GameList::GetIsoSerialAndCRC) ISO open of '{}' failed: {}", path, error.GetDescription()));
+        return false;
+    }
 
-	// This isn't great, we really want to make it all thread-local...
-	CDVD = &CDVDapi_Iso;
-	if (!CDVD->open(path, &error))
-	{
-		Console.Error(fmt::format("(GameList::GetIsoSerialAndCRC) CDVD open of '{}' failed: {}", path, error.GetDescription()));
-		return false;
-	}
+    CDVDDiscType detected_type = CDVDDiscType::Other;
+    cdvdGetDiscInfo(iso, serial, nullptr, nullptr, nullptr, crc, &detected_type);
 
-	// TODO: we could include the version in the game list?
-	*disc_type = DoCDVDdetectDiskType();
-	cdvdGetDiscInfo(serial, nullptr, nullptr, nullptr, crc, nullptr);
-	DoCDVDclose();
-	return true;
+    switch (detected_type)
+    {
+        case CDVDDiscType::PS1Disc:
+            *disc_type = (iso.GetType() == ISOTYPE_CD) ? CDVD_TYPE_PSCD : CDVD_TYPE_ILLEGAL;
+            break;
+
+        case CDVDDiscType::PS2Disc:
+            switch (iso.GetType())
+            {
+                case ISOTYPE_CD:
+                    *disc_type = CDVD_TYPE_PS2CD;
+                    break;
+                case ISOTYPE_DVD:
+                case ISOTYPE_DVDDL:
+                    *disc_type = CDVD_TYPE_PS2DVD;
+                    break;
+                default:
+                    *disc_type = CDVD_TYPE_ILLEGAL;
+                    break;
+            }
+            break;
+
+        default:
+            *disc_type = CDVD_TYPE_ILLEGAL;
+            break;
+    }
+
+    return true;
 }
+
 
 bool GameList::GetElfListEntry(const std::string& path, GameList::Entry* entry)
 {

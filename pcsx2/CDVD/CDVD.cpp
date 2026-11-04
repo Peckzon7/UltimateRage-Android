@@ -599,50 +599,106 @@ static std::string ExecutablePathToSerial(const std::string& path)
 	return serial;
 }
 
-void cdvdGetDiscInfo(std::string* out_serial, std::string* out_elf_path, std::string* out_version, std::string* out_region, u32* out_crc,
-	CDVDDiscType* out_disc_type)
+static void cdvdGetDiscInfoFromReader(IsoReader& isor,
+    std::string* out_serial, std::string* out_elf_path,
+    std::string* out_version, std::string* out_region,
+    u32* out_crc, CDVDDiscType* out_disc_type)
 {
-	Error error;
-	IsoReader isor;
+    Error error;
+    std::string elfpath, version, vmode;
+    CDVDDiscType disc_type = GetPS2ElfName(isor, &elfpath, &version, &vmode, &error);
 
-	std::string elfpath, version, vmode;
-	CDVDDiscType disc_type = CDVDDiscType::Other;
-	if (!isor.Open(&error) || (disc_type = GetPS2ElfName(isor, &elfpath, &version, &vmode, &error)) == CDVDDiscType::Other)
-		Console.Error(fmt::format("Failed to get ELF name: {}", error.GetDescription()));
+    if (disc_type == CDVDDiscType::Other)
+        Console.Error(fmt::format("Failed to get ELF name: {}", error.GetDescription()));
 
-	// Don't bother parsing it if we don't need the CRC.
-	if (out_crc)
-	{
-		u32 crc = 0;
+    if (out_crc)
+    {
+        u32 crc = 0;
+        if (disc_type == CDVDDiscType::PS2Disc || disc_type == CDVDDiscType::PS1Disc)
+        {
+            ElfObject elfo;
+            const bool isPSXElf = (disc_type == CDVDDiscType::PS1Disc);
+            if (!cdvdLoadDiscElf(&elfo, isor, elfpath, isPSXElf, &error))
+                Console.Error(fmt::format("Failed to load ELF info for {}: {}", elfpath, error.GetDescription()));
+            else
+                crc = elfo.GetCRC();
+        }
+        *out_crc = crc;
+    }
 
-		if (disc_type == CDVDDiscType::PS2Disc || disc_type == CDVDDiscType::PS1Disc)
-		{
-			ElfObject elfo;
-			const bool isPSXElf = (disc_type == CDVDDiscType::PS1Disc);
-			if (!cdvdLoadDiscElf(&elfo, isor, elfpath, isPSXElf, &error))
-				Console.Error(fmt::format("Failed to load ELF info for {}: {}", elfpath, error.GetDescription()));
-			else
-				crc = elfo.GetCRC();
-		}
+    if (out_serial)
+    {
+        if (disc_type != CDVDDiscType::Other)
+            *out_serial = ExecutablePathToSerial(elfpath);
+        else
+            out_serial->clear();
+    }
 
-		*out_crc = crc;
-	}
+    if (out_elf_path)
+        *out_elf_path = std::move(elfpath);
+    if (out_version)
+        *out_version = std::move(version);
+    if (out_disc_type)
+        *out_disc_type = disc_type;
+    if (out_region)
+        *out_region = vmode;
+}
 
-	if (out_serial)
-	{
-		if (disc_type != CDVDDiscType::Other)
-			*out_serial = ExecutablePathToSerial(elfpath);
-		else
-			out_serial->clear();
-	}
-	if (out_elf_path)
-		*out_elf_path = std::move(elfpath);
-	if (out_version)
-		*out_version = std::move(version);
-	if (out_disc_type)
-		*out_disc_type = disc_type;
-	if (out_region)
-		*out_region = vmode;
+void cdvdGetDiscInfo(std::string* out_serial, std::string* out_elf_path,
+    std::string* out_version, std::string* out_region, u32* out_crc,
+    CDVDDiscType* out_disc_type)
+{
+    Error error;
+    IsoReader isor;
+    if (!isor.Open(&error))
+    {
+        Console.Error(fmt::format("Failed to get ELF name: {}", error.GetDescription()));
+        if (out_crc)
+            *out_crc = 0;
+        if (out_serial)
+            out_serial->clear();
+        if (out_elf_path)
+            out_elf_path->clear();
+        if (out_version)
+            out_version->clear();
+        if (out_region)
+            out_region->clear();
+        if (out_disc_type)
+            *out_disc_type = CDVDDiscType::Other;
+        return;
+    }
+
+    cdvdGetDiscInfoFromReader(isor, out_serial, out_elf_path, out_version,
+        out_region, out_crc, out_disc_type);
+}
+
+void cdvdGetDiscInfo(InputIsoFile& iso, std::string* out_serial,
+    std::string* out_elf_path, std::string* out_version,
+    std::string* out_region, u32* out_crc,
+    CDVDDiscType* out_disc_type)
+{
+    Error error;
+    IsoReader isor;
+    if (!isor.Open(iso, &error))
+    {
+        Console.Error(fmt::format("Failed to open independent ISO reader: {}", error.GetDescription()));
+        if (out_crc)
+            *out_crc = 0;
+        if (out_serial)
+            out_serial->clear();
+        if (out_elf_path)
+            out_elf_path->clear();
+        if (out_version)
+            out_version->clear();
+        if (out_region)
+            out_region->clear();
+        if (out_disc_type)
+            *out_disc_type = CDVDDiscType::Other;
+        return;
+    }
+
+    cdvdGetDiscInfoFromReader(isor, out_serial, out_elf_path, out_version,
+        out_region, out_crc, out_disc_type);
 }
 
 void cdvdReadKey(u8, u16, u32 arg2, u8* key)
