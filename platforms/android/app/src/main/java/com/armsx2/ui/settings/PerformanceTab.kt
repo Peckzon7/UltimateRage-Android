@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
@@ -44,6 +48,41 @@ fun PerformanceTab(state: MutableState<Settings>) {
         modifier = Modifier
             .fillMaxWidth(),
     ) {
+        Button(
+            onClick = {
+                val optimized = Settings.lowEndPreset(
+                    s.copy(
+                        cpu = s.cpu.copy(
+                            eeCycleRate = 0,
+                            mtvu = true,
+                            vu1Instant = true,
+                            vuFlagHack = true,
+                            intcStat = true,
+                            waitLoop = true,
+                            fastCDVD = true,
+                        ),
+                    ),
+                    mtvu = com.armsx2.DeviceTier.mtvuDefault(),
+                ).copy(
+                    output = s.output.copy(
+                        upscaleFloat = 1.0f,
+                        hwScaler = 0,
+                        screenResOverride = "auto",
+                    ),
+                )
+                apply(optimized)
+                com.armsx2.runtime.MainActivityRuntime.surface.value
+                    ?.applyOutputScale()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFD32F2F),
+                contentColor = Color.White,
+            ),
+        ) {
+            Text("⚡ OTIMIZAR FPS")
+        }
+        SettingsDivider()
         // Automatic performance tuning: when a game keeps missing frames, the core tries
         // performance settings one at a time and keeps the ones that help, in that game's own
         // settings. The per-game list of what it changed, and its Reset, sit under it.
