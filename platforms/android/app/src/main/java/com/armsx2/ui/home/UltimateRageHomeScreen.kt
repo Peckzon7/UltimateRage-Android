@@ -20,6 +20,7 @@ import com.armsx2.navigation.SettingsCategory
 import com.armsx2.navigation.UiNavigator
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -31,6 +32,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import com.armsx2.GpuInfo
+import com.armsx2.Thermals
+import com.armsx2.ui.common.BatteryIndicator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 private val RageBackground = Color(0xFF202020)
 private val RageCard = Color(0xFF2B2B2B)
@@ -101,6 +109,8 @@ fun UltimateRageHomeScreen(
 
                     Spacer(Modifier.height(20.dp))
                     PlayButton(onClick = onPlay, enabled = gameDetected)
+                    Spacer(Modifier.height(18.dp))
+                    DeviceHardwareCard()
                     Spacer(Modifier.height(18.dp))
 
                     ShortcutButton(
@@ -254,6 +264,134 @@ private fun OnlineStyleStatusCard(title: String, message: String, detail: String
         Text(message, color = Color(0xFFE0DDE8), fontSize = 14.sp, lineHeight = 21.sp)
         Spacer(Modifier.height(12.dp))
         Text(detail, color = RageMuted, fontSize = 13.sp, lineHeight = 19.sp)
+    }
+}
+
+@Composable
+private fun DeviceHardwareCard() {
+    val context = LocalContext.current.applicationContext
+    var renderer by remember { mutableStateOf<String?>(null) }
+    var cpuTemp by remember { mutableStateOf(Thermals.NONE) }
+    var gpuTemp by remember { mutableStateOf(Thermals.NONE) }
+    var batteryTemp by remember { mutableStateOf(Thermals.NONE) }
+
+    LaunchedEffect(context) {
+        renderer = withContext(Dispatchers.IO) {
+            GpuInfo.rendererName()
+        }
+
+        while (true) {
+            val readings = withContext(Dispatchers.IO) {
+                Thermals.poll(context, 3000L)
+                Triple(Thermals.cpu, Thermals.gpu, Thermals.battery)
+            }
+            cpuTemp = readings.first
+            gpuTemp = readings.second
+            batteryTemp = readings.third
+            delay(3000L)
+        }
+    }
+
+    val (heatLabel, heatColor) = when {
+        batteryTemp == Thermals.NONE -> "Indisponível" to RageMuted
+        batteryTemp < 35f -> "Normal" to Color(0xFF4CAF50)
+        batteryTemp < 40f -> "Elevada" to Color(0xFFFFC107)
+        else -> "Muito elevada" to Color(0xFFF44336)
+    }
+
+    InfoCard(
+        title = "Hardware do celular",
+        icon = "▤",
+        accent = RageOrange
+    ) {
+        Text(
+            "GPU",
+            color = RageMuted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            renderer ?: "Detectando GPU...",
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Bateria",
+                color = RageMuted,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            BatteryIndicator()
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(heatColor)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Calor pela bateria: $heatLabel",
+                color = heatColor,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            if (batteryTemp != Thermals.NONE) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${batteryTemp.toInt()} °C",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        val availableTemps = listOf(
+            "CPU" to cpuTemp,
+            "GPU" to gpuTemp
+        ).filter { it.second != Thermals.NONE }
+
+        if (availableTemps.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                availableTemps.forEach { (label, value) ->
+                    Column {
+                        Text(
+                            label,
+                            color = RageMuted,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            "${value.toInt()} °C",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
