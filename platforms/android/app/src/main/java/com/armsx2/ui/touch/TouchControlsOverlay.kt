@@ -665,39 +665,39 @@ private fun ButtonWidget(
     var localPressed by remember(cfg.id) { mutableStateOf(false) }
     val pressed = forcedPressed || localPressed
     val opacity = TouchControls.opacity.floatValue
+    val customPainter = skinPainter(skinKeyFor(cfg.id))
+
     val mod = Modifier
         .fillMaxSize()
         .let {
             if (edit) it.editGestures(cfg)
-            else if (inputEnabled) it.pressGestures(cfg.id.keycode, cfg.tapToHold, cfg.turbo) { p -> localPressed = p }
+            else if (inputEnabled) it.pressGestures(cfg.id.keycode, cfg.tapToHold, cfg.turbo) { p ->
+                localPressed = p
+            }
             else it
         }
-    // Pressed feedback: every button shrinks a hair AND darkens.
-    // - Buttons with a pressed sprite (most) get the darken via the
-    //   already-darker PNG swap.
-    // - CIRCLE / SQUARE don't ship pressed sprites, so they get the
-    //   darken via ColorFilter.tint + BlendMode.Modulate (multiplies
-    //   each pixel by the mid-gray tint).
-    // Both groups share the same scale-down so the shrink-on-press
-    // feel is consistent.
-    val darkenOnPress = pressed && !hasPressedSprite(cfg.id)
+
+    val darkenOnPress = pressed && !hasPressedSprite(cfg.id) && customPainter == null
+
     Box(modifier = mod, contentAlignment = Alignment.Center) {
         Image(
-            painter = skinPainter(skinKeyFor(cfg.id)) ?: painterResource(drawableFor(cfg.id, pressed)),
+            painter = customPainter ?: painterResource(drawableFor(cfg.id, pressed)),
             contentDescription = cfg.id.label,
             contentScale = ContentScale.Fit,
             alpha = opacity,
-            colorFilter = if (darkenOnPress)
-                ColorFilter.tint(Color(0xFFB0B0B0), BlendMode.Modulate)
-            else null,
+            colorFilter = when {
+                pressed && customPainter != null ->
+                    ColorFilter.tint(Color.White, BlendMode.SrcIn)
+                darkenOnPress ->
+                    ColorFilter.tint(Color(0xFFB0B0B0), BlendMode.Modulate)
+                else -> null
+            },
             modifier = Modifier
                 .fillMaxSize()
-                // CIRCLE / SQUARE shrink more (0.85) because they lack
-                // a pressed PNG — the rest get a smaller 0.92 nudge on
-                // top of the pressed-sprite swap, which itself depicts
-                // a slightly inset button.
                 .scale(
                     when {
+                        customPainter != null && pressed -> 1.15f
+                        customPainter != null -> 1.15f
                         !pressed -> 1f
                         hasPressedSprite(cfg.id) -> 0.92f
                         else -> 0.85f
@@ -727,7 +727,10 @@ private fun skinPainter(key: String?): Painter? {
     if (key == null) return null
     val active = ControllerSkinStore.activeSkinId.value ?: return null
     val ctx = LocalContext.current
-    val bmp = remember(active, key) { ControllerSkinStore.bitmapForKey(ctx, key) } ?: return null
+    val revision = ControllerSkinStore.imageSelectionRevision.value
+    val bmp = remember(active, key, revision) {
+        ControllerSkinStore.bitmapForKey(ctx, key)
+    } ?: return null
     return remember(bmp) { BitmapPainter(bmp) }
 }
 
@@ -1705,11 +1708,14 @@ private fun DpadWidget(
             contentDescription = str("touch.dpad.up.description"),
             contentScale = ContentScale.Fit,
             alpha = opacity,
+            colorFilter = if (shown.up && skUp != null)
+                ColorFilter.tint(Color.White, BlendMode.SrcIn) else null,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .offset(y = (-4).dp)
                 .fillMaxHeight(armFill)
-                .aspectRatio(upRatio),
+                .aspectRatio(upRatio)
+                .scale(if (skUp != null) 1.15f else 1f),
         )
         Image(
             painter = skDown ?: painterResource(
@@ -1718,11 +1724,14 @@ private fun DpadWidget(
             contentDescription = str("touch.dpad.down.description"),
             contentScale = ContentScale.Fit,
             alpha = opacity,
+            colorFilter = if (shown.down && skDown != null)
+                ColorFilter.tint(Color.White, BlendMode.SrcIn) else null,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxHeight(armFill)
                 .aspectRatio(upRatio)
-                .rotate(if (skDown != null) 0f else 180f),
+                .rotate(if (skDown != null) 0f else 180f)
+                .scale(if (skDown != null) 1.15f else 1f),
         )
         Image(
             painter = skLeft ?: painterResource(
@@ -1731,10 +1740,13 @@ private fun DpadWidget(
             contentDescription = str("touch.dpad.left.description"),
             contentScale = ContentScale.Fit,
             alpha = opacity,
+            colorFilter = if (shown.left && skLeft != null)
+                ColorFilter.tint(Color.White, BlendMode.SrcIn) else null,
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxWidth(armFill)
-                .aspectRatio(lrRatio),
+                .aspectRatio(lrRatio)
+                .scale(if (skLeft != null) 1.15f else 1f),
         )
         Image(
             painter = skRight ?: painterResource(
@@ -1743,10 +1755,13 @@ private fun DpadWidget(
             contentDescription = str("touch.dpad.right.description"),
             contentScale = ContentScale.Fit,
             alpha = opacity,
+            colorFilter = if (shown.right && skRight != null)
+                ColorFilter.tint(Color.White, BlendMode.SrcIn) else null,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxWidth(armFill)
-                .aspectRatio(lrRatio),
+                .aspectRatio(lrRatio)
+                .scale(if (skRight != null) 1.15f else 1f),
         )
         if (edit) EditAdornment(cfg.id)
     }
@@ -1982,9 +1997,10 @@ private fun StickWidget(cfg: TouchButtonCfg, edit: Boolean) {
         // rendering exactly as before while packs that ship both sides stop showing the
         // same art under both sticks.
         val stickSide = if (cfg.id == TouchButtonId.L_STICK) "left" else "right"
+        val customBasePainter = skinPainter("analog_base_$stickSide")
+            ?: skinPainter("analog_base")
         Image(
-            painter = skinPainter("analog_base_$stickSide") ?: skinPainter("analog_base")
-                ?: painterResource(R.drawable.pad_stick_base),
+            painter = customBasePainter ?: painterResource(R.drawable.pad_stick_base),
             contentDescription = cfg.id.label + " base",
             contentScale = ContentScale.Fit,
             alpha = opacity,
@@ -1993,22 +2009,30 @@ private fun StickWidget(cfg: TouchButtonCfg, edit: Boolean) {
                 .offset(
                     x = with(density) { baseShift.value.x.toDp() },
                     y = with(density) { baseShift.value.y.toDp() },
-                ),
+                )
+                .scale(if (customBasePainter != null) 1.15f else 1f),
         )
         val thumbSizeDp = cfg.sizeDp * 0.62f
+        val customThumbPainter = skinPainter("analog_stick_$stickSide")
+            ?: skinPainter("analog_stick")
         Image(
-            painter = skinPainter("analog_stick_$stickSide") ?: skinPainter("analog_stick")
-                ?: painterResource(R.drawable.pad_thumb),
+            painter = customThumbPainter ?: painterResource(R.drawable.pad_thumb),
             contentDescription = cfg.id.label + " thumb",
             contentScale = ContentScale.Fit,
             alpha = opacity,
+            colorFilter = if (thumb.value.x != 0f || thumb.value.y != 0f) {
+                ColorFilter.tint(Color.White, BlendMode.SrcIn)
+            } else {
+                null
+            },
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(
                     x = with(density) { (baseShift.value.x + thumb.value.x).toDp() },
                     y = with(density) { (baseShift.value.y + thumb.value.y).toDp() },
                 )
-                .size(thumbSizeDp.dp),
+                .size(thumbSizeDp.dp)
+                .scale(if (customThumbPainter != null) 1.15f else 1f),
         )
         // The extra analog button is no longer drawn here — it is its own widget (AnalogExtraWidget)
         // placed by the layout, so it can be dragged in the editor. This gesture handler still

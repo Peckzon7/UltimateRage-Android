@@ -18,6 +18,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -280,6 +288,179 @@ fun SkinsTab(@Suppress("UNUSED_PARAMETER") state: MutableState<Settings>) {
                     refresh.intValue++
                 },
             )
+        }
+
+        if (activeId != null && skins.any { it.id == activeId }) {
+            SettingsDivider()
+            ButtonImageCustomizer(
+                ctx = ctx,
+                skinId = activeId,
+                serial = editSerial,
+            )
+        }
+    }
+}
+
+
+/** Per-button PNG customization for an imported controller skin. */
+@Composable
+private fun ButtonImageCustomizer(
+    ctx: android.content.Context,
+    skinId: String,
+    serial: String?,
+) {
+    val buttons = listOf(
+        "cross" to "X",
+        "circle" to "O",
+        "square" to "Quadrado",
+        "triangle" to "Triângulo",
+        "l1" to "L1",
+        "l2" to "L2",
+        "r1" to "R1",
+        "r2" to "R2",
+        "start" to "Start",
+        "select" to "Select",
+        "up" to "Cima",
+        "down" to "Baixo",
+        "left" to "Esquerda",
+        "right" to "Direita",
+        "l3" to "L3",
+        "r3" to "R3",
+        "analog_base_left" to "Base do analógico esquerdo",
+        "analog_stick_left" to "Parte móvel do analógico esquerdo",
+        "analog_base_right" to "Base do analógico direito",
+        "analog_stick_right" to "Parte móvel do analógico direito",
+    )
+    val options = remember(skinId) {
+        ControllerSkinStore.imageOptions(ctx, skinId)
+    }
+    val optionPreviews = remember(skinId) { mutableStateMapOf<String, ImageBitmap>() }
+
+    LaunchedEffect(skinId, options) {
+        for (fileName in options) {
+            if (!optionPreviews.containsKey(fileName)) {
+                val preview = withContext(Dispatchers.IO) {
+                    ControllerSkinStore.bitmapForOption(ctx, skinId, fileName)
+                }
+                if (preview != null) optionPreviews[fileName] = preview
+            }
+        }
+    }
+
+    val selectedKey = remember(skinId) { mutableStateOf("cross") }
+    val menuOpen = remember { mutableStateOf(false) }
+    val revision = ControllerSkinStore.imageSelectionRevision.value
+    val selectedName = remember(skinId, selectedKey.value, serial, revision) {
+        ControllerSkinStore.selectedButtonImage(
+            skinId, selectedKey.value, serial,
+        )
+    }
+
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Text(
+            "Personalizar botões",
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "Escolha um botão e toque na imagem que deseja usar.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 3.dp, bottom = 8.dp),
+        )
+
+        Box {
+            OutlinedButton(onClick = { menuOpen.value = true }) {
+                val label = buttons.first { it.first == selectedKey.value }.second
+                Text("Botão: $label")
+            }
+            DropdownMenu(
+                expanded = menuOpen.value,
+                onDismissRequest = { menuOpen.value = false },
+            ) {
+                buttons.forEach { (key, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            selectedKey.value = key
+                            menuOpen.value = false
+                        },
+                    )
+                }
+            }
+        }
+
+        Text(
+            if (selectedName != null) "Imagem atual: $selectedName"
+            else "Imagem atual: padrão da skin",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(vertical = 6.dp),
+        )
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            options.forEach { fileName ->
+                val preview = optionPreviews[fileName]
+
+                Column(
+                    Modifier
+                        .width(88.dp)
+                        .padding(4.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            if (selectedName == fileName) Color(0x334A90E2)
+                            else Color(0x22111111)
+                        )
+                        .clickable {
+                            ControllerSkinStore.setButtonImage(
+                                ctx, skinId, selectedKey.value, fileName, serial,
+                            )
+                        }
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(64.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (preview != null) {
+                            Image(
+                                bitmap = preview,
+                                contentDescription = fileName,
+                                modifier = Modifier.fillMaxWidth().height(58.dp),
+                                contentScale = ContentScale.Fit,
+                            )
+                        } else {
+                            Text("…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Text(
+                        fileName,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 10.sp,
+                        maxLines = 2,
+                    )
+                }
+            }
+        }
+
+        OutlinedButton(
+            onClick = {
+                ControllerSkinStore.setButtonImage(
+                    ctx, skinId, selectedKey.value, null, serial,
+                )
+            },
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            Text(if (serial != null) "Usar imagem global / padrão" else "Restaurar imagem padrão")
         }
     }
 }

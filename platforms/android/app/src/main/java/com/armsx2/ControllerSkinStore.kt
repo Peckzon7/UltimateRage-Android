@@ -24,6 +24,10 @@ import java.util.zip.ZipInputStream
 object ControllerSkinStore {
 
     private const val KEY_ACTIVE = "skin.active"
+    private const val KEY_BUTTON_IMAGE_PREFIX = "skin.button.image."
+
+    /** Changes whenever a custom button image is selected or reset. */
+    val imageSelectionRevision = mutableStateOf(0)
 
     /** Per-game skin override: `skin.active.game.<serial>`. Mirrors how the touch
      *  LAYOUT already goes per-serial (see TouchControls.applyForSerial) — the global
@@ -64,7 +68,12 @@ object ControllerSkinStore {
             MainActivityRuntime.prefs.getString(KEY_ACTIVE_GAME_PREFIX + eff, null)
                 ?: MainActivityRuntime.prefs.getString(KEY_ACTIVE, null)
         else MainActivityRuntime.prefs.getString(KEY_ACTIVE, null)
+        val serialChanged = activeSerial.value != eff
         activeSerial.value = eff
+        if (serialChanged) {
+            clearCache()
+            imageSelectionRevision.value++
+        }
         val resolved = idOrNull(raw)?.takeIf { builtinFor(it) != null || File(root(ctx), it).isDirectory }
         if (activeSkinId.value != resolved) {
             activeSkinId.value = resolved
@@ -131,6 +140,15 @@ object ControllerSkinStore {
             put("m$i", "macro$i")
             put("macro_$i", "macro$i")
         }
+
+        // Nomes do pacote personalizado de ícones.
+        put("x", "cross")
+        put("o", "circle")
+        put("touchpad", "select")
+        put("arrow_up", "up")
+        put("arrow_down", "down")
+        put("arrow_left", "left")
+        put("arrow_right", "right")
     }
     /** Canonical logical key for an incoming image filename, accepting BOTH the
      *  bundled iOS scheme (`ic_controller_<key>_button.png`) AND the bare names
@@ -154,7 +172,7 @@ object ControllerSkinStore {
     // analog, 4 macro) and this used to sit at 24, so a complete pack would have had its last
     // few images dropped on import with no error — the images simply would not appear. Adding a
     // skin slot means checking this number.
-    private const val MAX_IMAGES = 40
+    private const val MAX_IMAGES = 60
     private const val MAX_IMAGE_BYTES = 8L * 1024 * 1024
 
     private fun root(ctx: Context): File = File(ctx.filesDir, "controllerskins").apply { mkdirs() }
@@ -191,7 +209,12 @@ object ControllerSkinStore {
         ensureLoaded(ctx)
         val dirs = root(ctx).listFiles { f -> f.isDirectory && !f.name.endsWith(".tmp") } ?: return emptyList()
         return dirs.mapNotNull { dir ->
-            val n = dir.listFiles { f -> f.isFile && keyForFilename(f.name) != null }?.size ?: 0
+            val originals = File(dir, "originals")
+            val n = if (originals.isDirectory) {
+                originals.listFiles { f -> f.isFile && f.extension.equals("png", ignoreCase = true) }?.size ?: 0
+            } else {
+                dir.listFiles { f -> f.isFile && keyForFilename(f.name) != null }?.size ?: 0
+            }
             if (n == 0) null else Skin(dir.name, prettyName(dir.name), n)
         }.sortedBy { it.name.lowercase() }
     }
@@ -226,7 +249,22 @@ object ControllerSkinStore {
                 .filter { it.startsWith(KEY_ACTIVE_GAME_PREFIX) }
                 .filter { MainActivityRuntime.prefs.getString(it, null) == id }
                 .forEach { remove(it) }
+            MainActivityRuntime.prefs.all.keys
+                .filter { key ->
+                    val globalPrefix = KEY_BUTTON_IMAGE_PREFIX + id + "."
+                    val gamePrefix = KEY_BUTTON_IMAGE_PREFIX + "game."
+                    key.startsWith(globalPrefix) ||
+                        (
+                            key.startsWith(gamePrefix) &&
+                            key.removePrefix(gamePrefix)
+                                .substringAfter('.', "")
+                                .substringBefore('.') == id
+                        )
+                }
+                .forEach { remove(it) }
         }.apply()
+        clearCache()
+        imageSelectionRevision.value++
         applyForSerial(ctx, activeSerial.value)
     }
 
@@ -273,27 +311,176 @@ object ControllerSkinStore {
         }.getOrNull()
     }
 
+    /** Returns true only for a valid, reasonably sized PNG image. */
+    private fun isValidPng(file: File): Boolean {
+        val pngSignature = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4E, 0x47,
+            0x0D, 0x0A, 0x1A, 0x0A
+        )
+
+        val signatureValid = runCatching {
+            file.inputStream().use { input ->
+                val signature = ByteArray(pngSignature.size)
+                var offset = 0
+                while (offset < signature.size) {
+                    val read = input.read(signature, offset, signature.size - offset)
+                    if (read <= 0) return@use false
+                    offset += read
+                }
+                signature.contentEquals(pngSignature)
+            }
+        }.getOrDefault(false)
+
+        if (!signatureValid) return false
+
+        val bounds = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+
+        val dimensionsValid = runCatching {
+            file.inputStream().use {
+                BitmapFactory.decodeStream(it, null, bounds)
+            }
+            bounds.outWidth in 1..4096 && bounds.outHeight in 1..4096
+        }.getOrDefault(false)
+
+        if (!dimensionsValid) return false
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = 4
+        }
+
+        return runCatching {
+            file.inputStream().use {
+                BitmapFactory.decodeStream(it, null, options) != null
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun buttonImagePrefKey(skinId: String, key: String, serial: String? = null): String {
+        val game = serial?.takeIf { it.isNotEmpty() }
+        return if (game != null)
+            KEY_BUTTON_IMAGE_PREFIX + "game." + game + "." + skinId + "." + key
+        else
+            KEY_BUTTON_IMAGE_PREFIX + skinId + "." + key
+    }
+
+    /** All PNG files preserved by the importer, including numbered variants. */
+    fun imageOptions(ctx: Context, skinId: String): List<String> {
+        val dir = File(root(ctx), skinId)
+        if (!dir.isDirectory || builtinFor(skinId) != null) return emptyList()
+        val originals = File(dir, "originals")
+        val source = if (originals.isDirectory) originals else dir
+        return source.listFiles { f ->
+            f.isFile && f.extension.equals("png", ignoreCase = true)
+        }?.map { it.name }?.sortedBy { it.lowercase() } ?: emptyList()
+    }
+
+    /** Decode one imported PNG for the customization gallery preview. */
+    fun bitmapForOption(ctx: Context, skinId: String, fileName: String): ImageBitmap? {
+        if (fileName != File(fileName).name || !fileName.endsWith(".png", ignoreCase = true)) {
+            return null
+        }
+        val dir = File(root(ctx), skinId)
+        if (!dir.isDirectory || builtinFor(skinId) != null) return null
+        val originals = File(dir, "originals")
+        val source = if (originals.isDirectory) originals else dir
+        val file = File(source, fileName).takeIf { it.isFile } ?: return null
+        return decodeDownsampled(
+            { runCatching { file.inputStream() }.getOrNull() },
+            { runCatching { file.inputStream() }.getOrNull() },
+        )
+    }
+
+    /** Currently selected custom image filename for one button. */
+    fun selectedButtonImage(skinId: String, key: String, serial: String? = null): String? {
+        if (!FILE.containsKey(key)) return null
+        val prefs = MainActivityRuntime.prefs
+        val game = serial?.takeIf { it.isNotEmpty() }
+        if (game != null) {
+            val gameKey = buttonImagePrefKey(skinId, key, game)
+            if (prefs.contains(gameKey)) return prefs.getString(gameKey, null)
+        }
+        return prefs.getString(buttonImagePrefKey(skinId, key), null)
+    }
+
+    /** Save a PNG choice for one button; null restores that button's default image. */
+    fun setButtonImage(
+        ctx: Context,
+        skinId: String,
+        key: String,
+        fileName: String?,
+        serial: String? = null,
+    ): Boolean {
+        if (!FILE.containsKey(key) || !File(root(ctx), skinId).isDirectory) return false
+        if (fileName != null && (
+            fileName != File(fileName).name ||
+            !imageOptions(ctx, skinId).contains(fileName)
+        )) return false
+
+        val prefKey = buttonImagePrefKey(skinId, key, serial)
+        if (fileName == null) {
+            MainActivityRuntime.prefs.edit().remove(prefKey).apply()
+        } else {
+            MainActivityRuntime.prefs.edit().putString(prefKey, fileName).apply()
+        }
+        clearCache()
+        imageSelectionRevision.value++
+        return true
+    }
+
     /** ImageBitmap for [key] from the active skin, or null to use the built-in. */
     fun bitmapForKey(ctx: Context, key: String): ImageBitmap? {
         ensureLoaded(ctx)
         val id = activeSkinId.value ?: return null
         val fname = FILE[key] ?: return null
-        val ck = "$id/$key"
-        synchronized(cache) { if (cache.containsKey(ck)) return cache[ck] }
         val builtin = builtinFor(id)
+        val selectedName = if (builtin == null) {
+            selectedButtonImage(id, key, activeSerial.value)
+        } else {
+            null
+        }
+
+        val cacheKey = "$id/$key/${selectedName ?: fname}"
+        synchronized(cache) {
+            if (cache.containsKey(cacheKey)) return cache[cacheKey]
+        }
+
         val bmp = if (builtin != null) {
-            // Bundled skin: decode straight from app assets.
             decodeDownsampled(
-                { runCatching { ctx.assets.open("${builtin.assetDir}/$fname") }.getOrNull() },
-                { runCatching { ctx.assets.open("${builtin.assetDir}/$fname") }.getOrNull() },
+                {
+                    runCatching {
+                        ctx.assets.open("${builtin.assetDir}/$fname")
+                    }.getOrNull()
+                },
+                {
+                    runCatching {
+                        ctx.assets.open("${builtin.assetDir}/$fname")
+                    }.getOrNull()
+                },
             )
         } else {
-            val f = File(File(root(ctx), id), fname)
-            if (f.isFile)
-                decodeDownsampled({ f.inputStream() }, { f.inputStream() })
-            else null
+            val dir = File(root(ctx), id)
+            val originals = File(dir, "originals")
+            val selected = selectedName?.let { name ->
+                File(if (originals.isDirectory) originals else dir, name)
+                    .takeIf { it.isFile && it.name == name }
+            }
+            val file = selected ?: File(dir, fname)
+
+            if (file.isFile) {
+                decodeDownsampled(
+                    { file.inputStream() },
+                    { file.inputStream() },
+                )
+            } else {
+                null
+            }
         }
-        synchronized(cache) { cache[ck] = bmp }
+
+        synchronized(cache) {
+            cache[cacheKey] = bmp
+        }
         return bmp
     }
 
@@ -304,24 +491,72 @@ object ControllerSkinStore {
      *  the main thread. */
     fun importFromTree(ctx: Context, treeUri: Uri): String? {
         val tree = DocumentFile.fromTreeUri(ctx, treeUri) ?: return null
-        val files = tree.listFiles().filter { it.isFile && keyForFilename(it.name ?: "") != null }
+        val files = tree.listFiles().filter { df ->
+            val name = df.name ?: ""
+            df.isFile && name.lowercase().endsWith(".png") &&
+                !name.substringAfterLast('/').startsWith("._")
+        }
         if (files.isEmpty()) return null
+
         val id = newId(ctx, tree.name ?: "skin")
         val tmp = File(root(ctx), "$id.tmp").apply { deleteRecursively(); mkdirs() }
+        val originals = File(tmp, "originals").apply { mkdirs() }
         var count = 0
+
         for (df in files) {
             if (count >= MAX_IMAGES) break
             if (df.length() > MAX_IMAGE_BYTES) continue
-            val key = keyForFilename(df.name ?: "") ?: continue
-            val out = File(tmp, FILE.getValue(key))
+
+            val originalName = (df.name ?: "icon.png")
+                .substringAfterLast('/')
+                .substringAfterLast('\\')
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                .ifBlank { "icon.png" }
+
+            var original = File(originals, originalName)
+            var suffix = 1
+            while (original.exists()) {
+                val base = originalName.removeSuffix(".png")
+                original = File(originals, "${base}_$suffix.png")
+                suffix++
+            }
+
             val ok = runCatching {
-                ctx.contentResolver.openInputStream(df.uri)?.use { ins ->
-                    out.outputStream().use { ins.copyTo(it) }
-                } != null
+                ctx.contentResolver.openInputStream(df.uri)?.use { input ->
+                    original.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            total += read
+                            if (total > MAX_IMAGE_BYTES) {
+                                throw IllegalStateException("PNG exceeds size limit")
+                            }
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                    true
+                } ?: false
             }.getOrDefault(false)
-            // Delete the partial/truncated file on a mid-copy failure so it
-            // isn't promoted by commit() and later counted/decoded as a real image.
-            if (ok) count++ else out.delete()
+
+            if (!ok || !isValidPng(original)) {
+                original.delete()
+                continue
+            }
+
+            val key = keyForFilename(df.name ?: "")
+            if (key != null) {
+                val canonical = File(tmp, FILE.getValue(key))
+                if (!canonical.exists()) {
+                    runCatching {
+                        original.inputStream().use { input ->
+                            canonical.outputStream().use { output -> input.copyTo(output) }
+                        }
+                    }.onFailure { canonical.delete() }
+                }
+            }
+            count++
         }
         return commit(ctx, tmp, id, count)
     }
@@ -346,28 +581,72 @@ object ControllerSkinStore {
     private fun importZip(ctx: Context, rawName: String, open: () -> java.io.InputStream?): String? {
         val id = newId(ctx, rawName)
         val tmp = File(root(ctx), "$id.tmp").apply { deleteRecursively(); mkdirs() }
+        val originals = File(tmp, "originals").apply { mkdirs() }
         var count = 0
+
         runCatching {
             open()?.use { stream ->
                 ZipInputStream(stream).use { zin ->
-                    while (true) {
-                        val e = zin.nextEntry ?: break
-                        val key = if (e.isDirectory) null else keyForFilename(e.name)
-                        if (key != null && count < MAX_IMAGES) {
-                            val out = File(tmp, FILE.getValue(key))
-                            // Per-entry guard: a mid-copy failure deletes that
-                            // entry's partial file (instead of leaving a truncated
-                            // one) and lets the remaining entries still import.
-                            val ok = runCatching {
-                                out.outputStream().use { zin.copyTo(it) }
+                    while (count < MAX_IMAGES) {
+                        val entry = zin.nextEntry ?: break
+                        val rawEntryName = entry.name
+                        val baseName = rawEntryName.substringAfterLast('/').substringAfterLast('\\')
+                        val validPng = !entry.isDirectory &&
+                            baseName.lowercase().endsWith(".png") &&
+                            !baseName.startsWith("._")
+
+                        if (validPng) {
+                            val safeName = baseName
+                                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                                .ifBlank { "icon.png" }
+
+                            var original = File(originals, safeName)
+                            var suffix = 1
+                            while (original.exists()) {
+                                val base = safeName.removeSuffix(".png")
+                                original = File(originals, "${base}_$suffix.png")
+                                suffix++
+                            }
+
+                            var total = 0L
+                            val copied = runCatching {
+                                original.outputStream().use { output ->
+                                    val buffer = ByteArray(8192)
+                                    while (true) {
+                                        val read = zin.read(buffer)
+                                        if (read == -1) break
+                                        total += read
+                                        if (total > MAX_IMAGE_BYTES) {
+                                            throw IllegalStateException("PNG exceeds size limit")
+                                        }
+                                        output.write(buffer, 0, read)
+                                    }
+                                }
                             }.isSuccess
-                            if (ok) count++ else out.delete()
+
+                            if (copied && total > 0L && isValidPng(original)) {
+                                val key = keyForFilename(baseName)
+                                if (key != null) {
+                                    val canonical = File(tmp, FILE.getValue(key))
+                                    if (!canonical.exists()) {
+                                        runCatching {
+                                            original.inputStream().use { input ->
+                                                canonical.outputStream().use { output -> input.copyTo(output) }
+                                            }
+                                        }.onFailure { canonical.delete() }
+                                    }
+                                }
+                                count++
+                            } else {
+                                original.delete()
+                            }
                         }
                         zin.closeEntry()
                     }
                 }
             }
         }
+
         return commit(ctx, tmp, id, count)
     }
 
