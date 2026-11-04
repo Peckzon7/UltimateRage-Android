@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
@@ -21,8 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.layout.ContentScale
@@ -49,6 +48,7 @@ import com.armsx2.config.Settings
 import com.armsx2.i18n.I18n
 import com.armsx2.i18n.str
 import com.armsx2.ui.Colors
+import com.armsx2.ui.common.PadModal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -349,6 +349,8 @@ private fun ButtonImageCustomizer(
 
     val selectedKey = remember(skinId) { mutableStateOf("cross") }
     val menuOpen = remember { mutableStateOf(false) }
+    val selectorScroll = rememberScrollState()
+    val selectorKey = "skin-button-selector-$skinId"
     val revision = ControllerSkinStore.imageSelectionRevision.value
     val selectedName = remember(skinId, selectedKey.value, serial, revision) {
         ControllerSkinStore.selectedButtonImage(
@@ -370,23 +372,50 @@ private fun ButtonImageCustomizer(
             modifier = Modifier.padding(top = 3.dp, bottom = 8.dp),
         )
 
-        Box {
-            OutlinedButton(onClick = { menuOpen.value = true }) {
-                val label = buttons.first { it.first == selectedKey.value }.second
-                Text("Botão: $label")
-            }
-            DropdownMenu(
-                expanded = menuOpen.value,
-                onDismissRequest = { menuOpen.value = false },
+        OutlinedButton(onClick = { menuOpen.value = true }) {
+            val label = buttons.first { it.first == selectedKey.value }.second
+            Text("Botão: $label")
+        }
+
+        if (menuOpen.value) {
+            PadModal(
+                key = selectorKey,
+                onDismiss = { menuOpen.value = false },
+                initialFocusId = "$selectorKey.option.${selectedKey.value}",
+                scrollState = selectorScroll,
             ) {
-                buttons.forEach { (key, label) ->
-                    DropdownMenuItem(
-                        text = { Text(label) },
-                        onClick = {
+                Column(
+                    Modifier
+                        .padding(24.dp)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                        .padding(16.dp)
+                        .heightIn(max = 520.dp)
+                        .verticalScroll(selectorScroll),
+                ) {
+                    Text(
+                        "Selecione o botão",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    buttons.forEach { (key, label) ->
+                        val selectOption = {
                             selectedKey.value = key
                             menuOpen.value = false
-                        },
-                    )
+                        }
+                        Text(
+                            text = label,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectOption() }
+                                .controllerFocusable(
+                                    controllerId = "$selectorKey.option.$key",
+                                    onConfirm = { selectOption() },
+                                )
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                        )
+                    }
                 }
             }
         }
