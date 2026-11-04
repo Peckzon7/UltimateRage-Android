@@ -570,7 +570,7 @@ fun UltimateRageHomeRoute() {
             when (tab) {
                 UltimateRageTab.HOME -> UiNavigator.home()
                 UltimateRageTab.SETTINGS ->
-                    UiNavigator.navigate(AppRoute.Settings(SettingsCategory.General))
+                    UiNavigator.navigate(AppRoute.Settings(SettingsCategory.Performance))
                 UltimateRageTab.CHEATS ->
                     UiNavigator.navigate(AppRoute.PatchManager)
                 UltimateRageTab.DRIVERS ->
